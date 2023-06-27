@@ -5,8 +5,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/marcusadriano/go-redis/internal/log"
-	"github.com/marcusadriano/go-redis/internal/rest"
+	"github.com/marcusadriano/go-sse-example/internal/log"
+	"github.com/marcusadriano/go-sse-example/internal/rest"
 	"github.com/redis/go-redis/v9"
 )
 

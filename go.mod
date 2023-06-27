@@ -1,4 +1,4 @@
-module github.com/marcusadriano/go-redis
+module github.com/marcusadriano/go-sse-example
 
 go 1.20
 
