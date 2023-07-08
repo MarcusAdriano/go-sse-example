@@ -1,8 +1,6 @@
 package rest
 
 import (
-	"context"
-	"fmt"
 	"io"
 	"net/http"
 
@@ -34,9 +32,6 @@ func (c ChatHandler) RegisterChatRoutes(r *chi.Mux) {
 func cors(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
 }
 
 func (c *ChatHandler) send(w http.ResponseWriter, r *http.Request) {
@@ -68,6 +63,10 @@ func (c *ChatHandler) subscribe(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	cors(w, r)
 
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		log.WithContext(ctx).Error().Msg("Streaming unsupported!")
@@ -79,13 +78,14 @@ func (c *ChatHandler) subscribe(w http.ResponseWriter, r *http.Request) {
 
 	userId := chi.URLParam(r, "userId")
 
-	subscriber := &redisSubscriber{
-		writer:  w,
-		flusher: flusher,
-		request: r,
-		userId:  userId,
-		rdb:     c.rdb,
-	}
+	subscriber := newSseRedisSubscriber(
+		ctx,
+		w,
+		c.rdb,
+		func() string {
+			return "chat:" + userId
+		},
+	)
 
 	go subscriber.Listen(ctx)
 
@@ -93,51 +93,4 @@ func (c *ChatHandler) subscribe(w http.ResponseWriter, r *http.Request) {
 
 	log.WithContext(ctx).Debug().Str("user_id", userId).Msg("Client closed connection")
 	subscriber.Close(ctx)
-}
-
-type redisSubscriber struct {
-	writer  http.ResponseWriter
-	flusher http.Flusher
-	request *http.Request
-	userId  string
-	rdb     *redis.Client
-	rdpb    *redis.PubSub
-}
-
-func (s *redisSubscriber) Listen(ctx context.Context) {
-	s.subscribe(ctx)
-	msgs := s.receiveMessage(ctx)
-
-	s.sendMessage(ctx, "Waiting for messages...")
-
-	for msg := range msgs {
-		s.sendMessage(ctx, msg.Payload)
-	}
-}
-
-func (s *redisSubscriber) subscribe(ctx context.Context) {
-	topic := "chat:" + s.userId
-	log.WithContext(ctx).Debug().Str("topic", topic).Msg("Subscribing to topic")
-	s.rdpb = s.rdb.Subscribe(ctx, topic)
-}
-
-func (s *redisSubscriber) receiveMessage(ctx context.Context) <-chan *redis.Message {
-	return s.rdpb.Channel()
-}
-
-func (s *redisSubscriber) sendMessage(ctx context.Context, msg string) {
-
-	bytes, err := fmt.Fprintln(s.writer, msg)
-	log.WithContext(ctx).Debug().Int("bytes", bytes).Msg("Bytes written")
-	if err != nil {
-		log.WithContext(ctx).Error().Err(err).Msg("Error sending message")
-	}
-	s.flusher.Flush()
-}
-
-func (s *redisSubscriber) Close(ctx context.Context) {
-	err := s.rdpb.Close()
-	if err != nil {
-		log.WithContext(ctx).Error().Msg("Error closing redis subscriber")
-	}
 }
